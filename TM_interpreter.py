@@ -19,35 +19,32 @@ def TM_interpret(M, x, k = None):
         - If M is not a valid encoding of a TM, then we reject, with `None` as our list of configurations
         - If k is not set and TM loops forever, this function should loop forever as well
     """
-    if not validate_TM(M): return (None, Result.REJECT) # First, check that the input TM is a correct encoding.
-
-    #TODO: What should the initial configuration be?
+       #TODO: What should the initial configuration be?
     #the intial configuration should be the q0 to the left 
+    if not validate_TM(M): return (None, Result.REJECT)
+    if not isinstance(x, str): return (None, Result.REJECT)
+    if any(s not in M.Sigma for s in x): return (None, Result.REJECT)
+    if k is not None and type(k) != int: return (None, Result.REJECT)
+
+    # the initial configuration has q0 to the left of the input
     u = ""
     q = M.q0
     v = x
-    config = Configuration(u,q, v) 
+    config = Configuration(u, q, v)
     config_list = [config]
     index = 0
     while True:
-        if (isinstance(k, set)):
+        # Check for halting before checking the limit, including at step k.
+        if(config.q == M.q_acc):
+            return (config_list, Result.ACCEPT)
+        elif(config.q == M.q_rej):
+            return (config_list, Result.REJECT)
+        elif(k is not None and k >= 0 and index == k):
             return (config_list, Result.UNDETERMINED)
-        elif(index == k):
-            return (config, Result.REJECT)
-
 
         config = simulate_step(M, config)
         config_list.append(config)
-            
-        if(config.q == M.q_acc):
-            return (config, Result.ACCEPT)
-        elif(config.q == M.q_rej):
-            return (config, Result.REJECT)
-
-        index = index + 1 
-        
-
-        
+        index = index + 1
         
         # TODO fill in the rest of this loop
         # When do we know to Accept or Reject?
@@ -69,37 +66,50 @@ def validate_TM(M):
         - etc (determine the other things you should check)
     Return True if the input TM is a valid encoding, False otherwise.
     """
+    if not isinstance(M, TuringMachine):
+        return False
+    if not all(isinstance(s, set) for s in (M.Q, M.Sigma, M.Gamma)):
+        return False
+    if not isinstance(M.delta, dict):
+        return False
+    if not all(isinstance(q, State) for q in M.Q):
+        return False
+    if not all(isinstance(q, State) for q in (M.q0, M.q_acc, M.q_rej)):
+        return False
+    if not all(isinstance(s, str) and len(s) == 1 for s in M.Gamma | M.Sigma):
+        return False
+    if ((M.q0 not in M.Q) or (M.q_acc not in M.Q) or (M.q_rej not in M.Q)):
+        return False
+    if(M.q_acc == M.q_rej):
+        return False
+    if not M.Sigma or not M.Sigma <= M.Gamma:
+        return False
+    if('_' not in M.Gamma or '_' in M.Sigma):
+        return False
 
-    if ((M.q0 not in M.Q )or( M.q_acc not in M.Q ) or (M.q_rej not in M.Q)):
-        return False
-    if(M.Gamma == {}):
-        return False
-    if(M.Sigma & M.Gamma) != M.Sigma:
-        return False
-    if(M.Sigma)== {}:
+    if len(M.delta) != (len(M.Q) - 2) * len(M.Gamma):
         return False
 
-    """
-    check all delta to have valid states, in Q, and s that is in teh input alphebte
-    """
-    for config in M.delta:
-        new_state, new_tape_s, dir = config
-        if((new_state not in M.Q ) or (dir != 'L' ) or(dir != 'R')
-            or new_tape_s not in M.Sigma):
-           return False
+    q_running = M.Q - {M.q_acc, M.q_rej}
 
-    for q in M.Q:
-        for tape_s in M.Sigma:
-            if((q,tape_s) not in M.delta):
-                return False
-            new_state, new_tape_s, dir = M.delta(q,tape_s)
-            if((new_state not in M.Q ) or (dir != 'L' ) or(dir != 'R')
-                or new_tape_s not in M.Sigma):
-                return False
-            if(dir == 'L' and q == M.q0):
-                return False
-            """ thknk about how going left on a q0 is false """
-         
+    # delta uses tape symbols, and has no transitions from halting states.
+    for config, transition in M.delta.items():
+        if not isinstance(config, tuple) or len(config) != 2:
+            return False
+        if not isinstance(transition, tuple) or len(transition) != 3:
+            return False
+        q, tape_s = config
+        new_state, new_tape_s, dir = transition
+        if not isinstance(q, State) or not isinstance(new_state, State):
+            return False
+        if not isinstance(tape_s, str) or not isinstance(new_tape_s, str):
+            return False
+        if(q not in q_running):
+            return False
+        if(tape_s not in M.Gamma or new_tape_s not in M.Gamma):
+            return False
+        if(new_state not in M.Q or dir not in ('L', 'R')):
+            return False
     return True
           
 def simulate_step(M, config):
@@ -111,22 +121,28 @@ def simulate_step(M, config):
 
 
     """
-    u, q, v = config.u, config.q, config.v # current configuration
-    s = v[0]
-    # TODO compute the next configuration!
-    q_new,new_s, dir = M.delta(q, s)
-    ## we need to consider the empy case where you are at the end
+    u, q, v = config.u, config.q, config.v
+
+    if(q == M.q_acc or q == M.q_rej):
+        return Configuration(u, q, v)
+
+    s = v[0] if v != "" else '_'
+    q_new, new_s, dir = M.delta[(q, s)]
+
     if(dir == 'L'):
-        v = new_s+ v 
+        v = v[1:]
+
+        if(new_s != '_' or v != ""):
+            v = new_s + v
+
         if(u != ""):
+            v = u[-1] + v
             u = u[:-1]
+        elif(v != ""):
+            v = "_" + v
     else:
-        u = u + new_s
-        if(v != ""):
-            v = v[1:]
-        
-    
+        if(new_s != '_' or u != ""):
+            u = u + new_s
+        v = v[1:]
 
-     
-
-    return Configuration(u, q_new, v) # return next configuration
+    return Configuration(u, q_new, v)
